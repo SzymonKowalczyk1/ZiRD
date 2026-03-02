@@ -1,1 +1,1 @@
-# ZiRD
+# Źródla i reprezentacja danych
