@@ -1,0 +1,116 @@
+Zad1
+
+SELECT employee_id, first_name, last_name, salary, RANK() OVER (ORDER BY salary DESC) AS ranking
+FROM employees;
+
+Zad2
+
+SELECT employee_id, first_name, last_name, salary, SUM(salary) OVER () AS total_salary
+FROM employees;
+
+Zad3
+
+CREATE TABLE products AS SELECT * FROM hr.products;
+CREATE TABLE sales AS SELECT * FROM hr.sales;
+
+Zad4
+
+SELECT e.last_name, p.product_name,
+       SUM(s.price * s.quantity) OVER (
+           PARTITION BY s.employee_id ORDER BY s.sale_date
+       ) AS cumulative_sales,
+       RANK() OVER (ORDER BY s.price * s.quantity DESC) AS sales_rank
+FROM sales s
+JOIN employees e ON s.employee_id = e.employee_id
+JOIN products p ON s.product_id = p.product_id;
+
+Zad5
+SELECT e.last_name, p.product_name, s.price,
+       COUNT(*) OVER (
+           PARTITION BY s.product_id, TRUNC(s.sale_date)
+       ) AS daily_transaction_count,
+       SUM(s.price * s.quantity) OVER (
+           PARTITION BY s.product_id, TRUNC(s.sale_date)
+       ) AS daily_sum,
+       LAG(s.price) OVER (
+           PARTITION BY s.product_id ORDER BY s.sale_date
+       ) AS prev_price,
+       LEAD(s.price) OVER (
+           PARTITION BY s.product_id ORDER BY s.sale_date
+       ) AS next_price
+FROM sales s
+JOIN employees e ON s.employee_id = e.employee_id
+JOIN products p ON s.product_id = p.product_id;
+
+Zad6
+SELECT p.product_name, s.price,
+       SUM(s.price * s.quantity) OVER (
+           PARTITION BY s.product_id, TRUNC(s.sale_date, 'MM')
+       ) AS monthly_total,
+       SUM(s.price * s.quantity) OVER (
+           PARTITION BY s.product_id, TRUNC(s.sale_date, 'MM')
+           ORDER BY s.sale_date
+       ) AS monthly_running_sum
+FROM sales s
+JOIN products p ON s.product_id = p.product_id;
+
+Zad7
+SELECT prod_name, product_category, price_2023, price_2022, price_2023 - price_2022 AS price_diff FROM (
+    SELECT p.product_name AS prod_name,
+           p.product_category,
+           s.price,
+           EXTRACT(YEAR FROM s.sale_date) AS sale_year,
+           LAG(s.price) OVER (
+               PARTITION BY s.product_id,
+                            EXTRACT(MONTH FROM s.sale_date),
+                            EXTRACT(DAY FROM s.sale_date)
+               ORDER BY s.sale_date
+           ) AS price_2022,
+           s.price AS price_2023
+    FROM sales s
+    JOIN products p ON s.product_id = p.product_id
+    WHERE EXTRACT(YEAR FROM s.sale_date) IN (2022, 2023)
+)
+WHERE sale_year = 2023;
+
+Zad8
+SELECT p.product_category, p.product_name, s.price,
+       MIN(s.price) OVER (PARTITION BY p.product_category) AS min_price,
+       MAX(s.price) OVER (PARTITION BY p.product_category) AS max_price,
+       MAX(s.price) OVER (PARTITION BY p.product_category)
+         - MIN(s.price) OVER (PARTITION BY p.product_category) AS price_range
+FROM sales s
+JOIN products p ON s.product_id = p.product_id;
+
+Zad9
+SELECT p.product_name, s.sale_date, s.price,
+       AVG(s.price) OVER (
+           PARTITION BY s.product_id
+           ORDER BY s.sale_date
+           ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING
+       ) AS moving_avg
+FROM sales s
+JOIN products p ON s.product_id = p.product_id;
+
+Zad10
+SELECT p.product_name, p.product_category, s.price,
+       RANK()       OVER (PARTITION BY p.product_category ORDER BY s.price) AS price_rank,
+       ROW_NUMBER() OVER (PARTITION BY p.product_category ORDER BY s.price) AS row_num,
+       DENSE_RANK() OVER (PARTITION BY p.product_category ORDER BY s.price) AS dense_rank
+FROM sales s
+JOIN products p ON s.product_id = p.product_id;
+
+Zad11
+SELECT e.last_name, p.product_name, s.price * s.quantity AS order_value,
+       SUM(s.price * s.quantity) OVER (PARTITION BY s.employee_id ORDER BY s.sale_date) AS running_total,
+       RANK() OVER (ORDER BY s.price * s.quantity DESC) AS global_rank
+FROM sales s
+JOIN employees e ON s.employee_id = e.employee_id
+JOIN products p ON s.product_id = p.product_id;
+
+
+Zad12
+
+SELECT DISTINCT e.first_name, e.last_name, j.job_title FROM employees e
+JOIN jobs j ON e.job_id = j.job_id
+JOIN sales s ON e.employee_id = s.employee_id;
