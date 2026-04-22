@@ -1,0 +1,463 @@
+FUNKCJE
+Zad1
+CREATE OR REPLACE FUNCTION get_job_title (p_id VARCHAR2)
+RETURN VARCHAR2 IS
+   v_title jobs.job_title%TYPE;
+BEGIN
+   SELECT job_title INTO v_title FROM jobs WHERE job_id = p_id;
+   RETURN v_title;
+EXCEPTION
+   WHEN NO_DATA_FOUND THEN
+      RAISE_APPLICATION_ERROR(-20001, 'Brak pracy o id: ' || p_id);
+END;
+
+test
+SELECT get_job_title('IT_PROG') FROM dual;
+SELECT get_job_title('BRAK')    FROM dual;
+
+Zad2
+
+CREATE OR REPLACE FUNCTION roczne_zarobki (p_id NUMBER)
+RETURN NUMBER IS
+   v_sal  employees.salary%TYPE;
+   v_comm employees.commission_pct%TYPE;
+BEGIN
+   SELECT salary, NVL(commission_pct, 0)
+   INTO   v_sal, v_comm
+   FROM   employees
+   WHERE  employee_id = p_id;
+   RETURN v_sal * 12 + v_sal * v_comm;
+END;
+
+SELECT employee_id, roczne_zarobki(employee_id) AS rok
+FROM   employees
+WHERE  ROWNUM <= 5;
+
+
+Zad3
+
+CREATE OR REPLACE FUNCTION nr_kierunkowy (p_tel VARCHAR2)
+RETURN VARCHAR2 IS
+   v_pos NUMBER;
+BEGIN
+   v_pos := INSTR(p_tel, ' ');
+
+   IF v_pos > 0 THEN
+      RETURN '(' || SUBSTR(p_tel, 1, v_pos - 1) || ')' || SUBSTR(p_tel, v_pos);
+   ELSE
+      RETURN '(' || SUBSTR(p_tel, 1, 2) || ') ' || SUBSTR(p_tel, 3);
+   END IF;
+END;
+
+SELECT nr_kierunkowy('12 444 55 66') FROM dual;
+output (12) 444 55 66
+
+
+Zad4
+CREATE OR REPLACE FUNCTION zmien_litery (p_str VARCHAR2)
+RETURN VARCHAR2 IS
+   v_len NUMBER := LENGTH(p_str);
+BEGIN
+   IF v_len IS NULL OR v_len = 0 THEN RETURN p_str; END IF;
+   IF v_len = 1 THEN RETURN UPPER(p_str); END IF;
+
+   RETURN UPPER(SUBSTR(p_str, 1, 1))
+       || LOWER(SUBSTR(p_str, 2, v_len - 2))
+       || UPPER(SUBSTR(p_str, -1));
+END;
+
+
+Zad5
+
+CREATE OR REPLACE FUNCTION pesel_na_date (p_pesel VARCHAR2)
+RETURN VARCHAR2 IS
+   v_rr  NUMBER := TO_NUMBER(SUBSTR(p_pesel, 1, 2));
+   v_mm  NUMBER := TO_NUMBER(SUBSTR(p_pesel, 3, 2));
+   v_dd  NUMBER := TO_NUMBER(SUBSTR(p_pesel, 5, 2));
+   v_rok NUMBER;
+BEGIN
+   IF    v_mm BETWEEN  1 AND 12 THEN v_rok := 1900 + v_rr;
+   ELSIF v_mm BETWEEN 21 AND 32 THEN v_rok := 2000 + v_rr; v_mm := v_mm - 20;
+   ELSIF v_mm BETWEEN 81 AND 92 THEN v_rok := 1800 + v_rr; v_mm := v_mm - 80;
+   ELSIF v_mm BETWEEN 41 AND 52 THEN v_rok := 2100 + v_rr; v_mm := v_mm - 40;
+   ELSIF v_mm BETWEEN 61 AND 72 THEN v_rok := 2200 + v_rr; v_mm := v_mm - 60;
+   END IF;
+   RETURN v_rok || '-' || LPAD(v_mm, 2, '0') || '-' || LPAD(v_dd, 2, '0');
+END;
+
+Zad6
+
+CREATE OR REPLACE FUNCTION policz_w_kraju (p_kraj VARCHAR2)
+RETURN VARCHAR2 IS
+   v_cid         countries.country_id%TYPE;
+   v_pracownicy  NUMBER;
+   v_dzialy      NUMBER;
+BEGIN
+   SELECT country_id INTO v_cid
+   FROM   countries
+   WHERE  country_name = p_kraj;
+   SELECT COUNT(e.employee_id), COUNT(DISTINCT d.department_id)
+   INTO   v_pracownicy, v_dzialy
+   FROM   departments d
+   JOIN   locations  l ON l.location_id = d.location_id
+   LEFT JOIN employees e ON e.department_id = d.department_id
+   WHERE  l.country_id = v_cid;
+   RETURN 'Pracownicy: ' || v_pracownicy || ', Dzialy: ' || v_dzialy;
+EXCEPTION
+   WHEN NO_DATA_FOUND THEN
+      DBMS_OUTPUT.PUT_LINE('pensja za wysoka' || p_kraj);
+      
+      
+END;
+
+WYZWALACZE
+
+Zad1
+CREATE TABLE archiwum_departamentow (
+   id               NUMBER,
+   nazwa            VARCHAR2(30),
+   data_zamkniecia  DATE,
+   ostatni_manager  VARCHAR2(100)
+);
+
+CREATE OR REPLACE TRIGGER trg_arch_dept
+AFTER DELETE ON departments
+FOR EACH ROW
+DECLARE
+   v_manager VARCHAR2(100);
+BEGIN
+   BEGIN
+      SELECT first_name || ' ' || last_name
+      INTO   v_manager
+      FROM   employees
+      WHERE  employee_id = :OLD.manager_id;
+   EXCEPTION
+      WHEN NO_DATA_FOUND THEN v_manager := NULL;
+   END;
+   INSERT INTO archiwum_departamentow (id, nazwa, data_zamkniecia, ostatni_manager)
+   VALUES (:OLD.department_id, :OLD.department_name, SYSDATE, v_manager);
+END;
+
+test:
+DELETE FROM departments WHERE department_id = 280;
+SELECT * FROM archiwum_departamentow;
+
+
+Zad2
+CREATE TABLE zlodziej (
+   id          NUMBER,
+   uzytkownik  VARCHAR2(50),
+   czas_zmiany DATE
+);
+
+CREATE SEQUENCE zlodziej_seq START WITH 1;
+
+CREATE OR REPLACE TRIGGER trg_sal_range
+BEFORE INSERT OR UPDATE OF salary ON employees
+FOR EACH ROW
+BEGIN
+   IF :NEW.salary NOT BETWEEN 2000 AND 26000 THEN
+      INSERT INTO zlodziej (id, uzytkownik, czas_zmiany)
+      VALUES (zlodziej_seq.NEXTVAL, USER, SYSDATE);
+
+      RAISE_APPLICATION_ERROR(-20010,
+         'Pensja ' || :NEW.salary || ' poza widelkami 2000-26000');
+   END IF;
+END;
+
+
+Zad3
+
+CREATE OR REPLACE TRIGGER trg_emp_autoinc
+BEFORE INSERT ON employees
+FOR EACH ROW
+BEGIN
+   IF :NEW.employee_id IS NULL THEN
+      :NEW.employee_id := employees_seq.NEXTVAL;
+   END IF;
+END;
+
+
+Zad4
+
+CREATE TABLE job_grades (
+   grade_level VARCHAR2(3) PRIMARY KEY,
+   lowest_sal  NUMBER,
+   highest_sal NUMBER
+);
+
+INSERT INTO job_grades VALUES ('A', 1000, 2999);
+INSERT INTO job_grades VALUES ('B', 3000, 5999);
+INSERT INTO job_grades VALUES ('C', 6000, 9999);
+COMMIT;
+
+CREATE OR REPLACE TRIGGER trg_lock_jobgrades
+BEFORE INSERT OR UPDATE OR DELETE ON job_grades
+BEGIN
+   RAISE_APPLICATION_ERROR(-20020, 'Operacje na tabeli JOB_GRADES sa zabronione');
+END;
+
+
+Zad5
+
+CREATE OR REPLACE TRIGGER trg_jobs_lock_sal
+BEFORE UPDATE OF min_salary, max_salary ON jobs
+FOR EACH ROW
+BEGIN
+   :NEW.min_salary := :OLD.min_salary;
+   :NEW.max_salary := :OLD.max_salary;
+END;
+
+test
+SELECT job_id, min_salary, max_salary FROM jobs WHERE job_id = 'MK_MAN';
+
+UPDATE jobs SET min_salary = 0, max_salary = 999999 WHERE job_id = 'MK_MAN';
+
+SELECT job_id, min_salary, max_salary FROM jobs WHERE job_id = 'MK_MAN';
+
+
+
+Pakiety
+
+Pakeiet1
+
+
+CREATE OR REPLACE PACKAGE pkg_zadania IS
+   FUNCTION  get_job_title   (p_id    VARCHAR2) RETURN VARCHAR2;
+   FUNCTION  roczne_zarobki  (p_id    NUMBER)   RETURN NUMBER;
+   FUNCTION  nr_kierunkowy   (p_tel   VARCHAR2) RETURN VARCHAR2;
+   FUNCTION  zmien_litery    (p_str   VARCHAR2) RETURN VARCHAR2;
+   FUNCTION  pesel_na_date   (p_pesel VARCHAR2) RETURN VARCHAR2;
+   FUNCTION  policz_w_kraju  (p_kraj  VARCHAR2) RETURN VARCHAR2;
+
+   PROCEDURE add_job         (p_id VARCHAR2, p_title VARCHAR2);
+   PROCEDURE update_job_title(p_id VARCHAR2, p_title VARCHAR2);
+   PROCEDURE delete_job      (p_id VARCHAR2);
+   PROCEDURE add_employee    (p_fn VARCHAR2, p_ln VARCHAR2, p_mail VARCHAR2, p_sal NUMBER);
+END pkg_zadania;
+
+
+CREATE OR REPLACE PACKAGE BODY pkg_zadania IS
+
+   FUNCTION get_job_title(p_id VARCHAR2) RETURN VARCHAR2 IS
+      v jobs.job_title%TYPE;
+   BEGIN
+      SELECT job_title INTO v FROM jobs WHERE job_id = p_id;
+      RETURN v;
+   EXCEPTION
+      WHEN NO_DATA_FOUND THEN
+         RAISE_APPLICATION_ERROR(-20001, 'Brak pracy: ' || p_id);
+   END;
+
+   FUNCTION roczne_zarobki(p_id NUMBER) RETURN NUMBER IS
+      v_sal employees.salary%TYPE;
+      v_c   employees.commission_pct%TYPE;
+   BEGIN
+      SELECT salary, NVL(commission_pct, 0) INTO v_sal, v_c
+      FROM   employees WHERE employee_id = p_id;
+      RETURN v_sal * 12 + v_sal * v_c;
+   END;
+
+   FUNCTION nr_kierunkowy(p_tel VARCHAR2) RETURN VARCHAR2 IS
+      v_pos NUMBER := INSTR(p_tel, ' ');
+   BEGIN
+      IF v_pos > 0 THEN
+         RETURN '(' || SUBSTR(p_tel, 1, v_pos - 1) || ')' || SUBSTR(p_tel, v_pos);
+      ELSE
+         RETURN '(' || SUBSTR(p_tel, 1, 2) || ') ' || SUBSTR(p_tel, 3);
+      END IF;
+   END;
+
+   FUNCTION zmien_litery(p_str VARCHAR2) RETURN VARCHAR2 IS
+      n NUMBER := LENGTH(p_str);
+   BEGIN
+      IF n IS NULL OR n = 0 THEN RETURN p_str; END IF;
+      IF n = 1 THEN RETURN UPPER(p_str); END IF;
+      RETURN UPPER(SUBSTR(p_str,1,1)) || LOWER(SUBSTR(p_str,2,n-2)) || UPPER(SUBSTR(p_str,-1));
+   END;
+
+   FUNCTION pesel_na_date(p_pesel VARCHAR2) RETURN VARCHAR2 IS
+      rr NUMBER := TO_NUMBER(SUBSTR(p_pesel,1,2));
+      mm NUMBER := TO_NUMBER(SUBSTR(p_pesel,3,2));
+      dd NUMBER := TO_NUMBER(SUBSTR(p_pesel,5,2));
+      rok NUMBER;
+   BEGIN
+      IF    mm BETWEEN  1 AND 12 THEN rok := 1900 + rr;
+      ELSIF mm BETWEEN 21 AND 32 THEN rok := 2000 + rr; mm := mm - 20;
+      ELSIF mm BETWEEN 81 AND 92 THEN rok := 1800 + rr; mm := mm - 80;
+      ELSIF mm BETWEEN 41 AND 52 THEN rok := 2100 + rr; mm := mm - 40;
+      END IF;
+      RETURN rok || '-' || LPAD(mm,2,'0') || '-' || LPAD(dd,2,'0');
+   END;
+
+   FUNCTION policz_w_kraju(p_kraj VARCHAR2) RETURN VARCHAR2 IS
+      v_cid countries.country_id%TYPE;
+      v_p   NUMBER;
+      v_d   NUMBER;
+   BEGIN
+      SELECT country_id INTO v_cid FROM countries WHERE country_name = p_kraj;
+
+      SELECT COUNT(e.employee_id), COUNT(DISTINCT d.department_id)
+      INTO   v_p, v_d
+      FROM   departments d
+      JOIN   locations  l ON l.location_id = d.location_id
+      LEFT   JOIN employees e ON e.department_id = d.department_id
+      WHERE  l.country_id = v_cid;
+
+      RETURN 'Pracownicy: ' || v_p || ', Dzialy: ' || v_d;
+   EXCEPTION
+      WHEN NO_DATA_FOUND THEN
+         RAISE_APPLICATION_ERROR(-20002, 'Brak kraju: ' || p_kraj);
+   END;
+
+   PROCEDURE add_job(p_id VARCHAR2, p_title VARCHAR2) IS
+   BEGIN
+      INSERT INTO jobs(job_id, job_title) VALUES(p_id, p_title);
+   EXCEPTION
+      WHEN OTHERS THEN
+         DBMS_OUTPUT.PUT_LINE('blad: ' || SQLERRM);
+   END;
+
+   PROCEDURE update_job_title(p_id VARCHAR2, p_title VARCHAR2) IS
+      brak EXCEPTION;
+   BEGIN
+      UPDATE jobs SET job_title = p_title WHERE job_id = p_id;
+      IF SQL%ROWCOUNT = 0 THEN RAISE brak; END IF;
+   EXCEPTION
+      WHEN brak THEN DBMS_OUTPUT.PUT_LINE('no Jobs updated');
+   END;
+
+   PROCEDURE delete_job(p_id VARCHAR2) IS
+      brak EXCEPTION;
+   BEGIN
+      DELETE FROM jobs WHERE job_id = p_id;
+      IF SQL%ROWCOUNT = 0 THEN RAISE brak; END IF;
+   EXCEPTION
+      WHEN brak THEN DBMS_OUTPUT.PUT_LINE('no Jobs deleted');
+   END;
+
+   PROCEDURE add_employee(p_fn VARCHAR2, p_ln VARCHAR2, p_mail VARCHAR2, p_sal NUMBER) IS
+      za_duzo EXCEPTION;
+   BEGIN
+      IF p_sal > 20000 THEN RAISE za_duzo; END IF;
+      INSERT INTO employees(employee_id, first_name, last_name, email, hire_date, job_id, salary)
+      VALUES(employees_seq.NEXTVAL, p_fn, p_ln, p_mail, SYSDATE, 'MK_MAN', p_sal);
+   EXCEPTION
+      WHEN za_duzo THEN DBMS_OUTPUT.PUT_LINE('pensja za wysoka');
+   END;
+
+END pkg_zadania;
+
+
+Test:
+SELECT pkg_zadania.get_job_title('MK_MAN')      FROM dual;
+SELECT pkg_zadania.roczne_zarobki(100)          FROM dual;
+SELECT pkg_zadania.nr_kierunkowy('22 420 56 60') FROM dual;
+SELECT pkg_zadania.zmien_litery('programista')  FROM dual;
+SELECT pkg_zadania.pesel_na_date('90010112345') FROM dual;
+
+BEGIN pkg_zadania.add_job('TEST_X','Test X'); END;
+
+BEGIN pkg_zadania.update_job_title('TEST_X','Test XX'); END;
+
+BEGIN pkg_zadania.delete_job('TEST_X'); END;
+
+
+Zad2
+
+
+CREATE OR REPLACE PACKAGE pkg_regions IS
+   PROCEDURE add_region    (p_id NUMBER, p_name VARCHAR2);
+   PROCEDURE update_region (p_id NUMBER, p_name VARCHAR2);
+   PROCEDURE delete_region (p_id NUMBER);
+
+   FUNCTION  get_by_id     (p_id   NUMBER)   RETURN VARCHAR2;
+   FUNCTION  get_by_name   (p_name VARCHAR2) RETURN NUMBER;
+   PROCEDURE list_all;
+   PROCEDURE find_like     (p_wzor VARCHAR2);
+END pkg_regions;
+
+
+CREATE OR REPLACE PACKAGE BODY pkg_regions IS
+
+   PROCEDURE add_region(p_id NUMBER, p_name VARCHAR2) IS
+   BEGIN
+      INSERT INTO regions(region_id, region_name) VALUES(p_id, p_name);
+      DBMS_OUTPUT.PUT_LINE('Dodano region: ' || p_name);
+   EXCEPTION
+      WHEN DUP_VAL_ON_INDEX THEN
+         DBMS_OUTPUT.PUT_LINE('Region o id ' || p_id || ' juz istnieje');
+   END;
+
+   PROCEDURE update_region(p_id NUMBER, p_name VARCHAR2) IS
+      brak EXCEPTION;
+   BEGIN
+      UPDATE regions SET region_name = p_name WHERE region_id = p_id;
+      IF SQL%ROWCOUNT = 0 THEN RAISE brak; END IF;
+      DBMS_OUTPUT.PUT_LINE('Zaktualizowano region ' || p_id);
+   EXCEPTION
+      WHEN brak THEN DBMS_OUTPUT.PUT_LINE('Brak regionu o id: ' || p_id);
+   END;
+
+   PROCEDURE delete_region(p_id NUMBER) IS
+      brak EXCEPTION;
+   BEGIN
+      DELETE FROM regions WHERE region_id = p_id;
+      IF SQL%ROWCOUNT = 0 THEN RAISE brak; END IF;
+      DBMS_OUTPUT.PUT_LINE('Usunieto region ' || p_id);
+   EXCEPTION
+      WHEN brak THEN DBMS_OUTPUT.PUT_LINE('Brak regionu o id: ' || p_id);
+   END;
+
+   FUNCTION get_by_id(p_id NUMBER) RETURN VARCHAR2 IS
+      v regions.region_name%TYPE;
+   BEGIN
+      SELECT region_name INTO v FROM regions WHERE region_id = p_id;
+      RETURN v;
+   EXCEPTION
+      WHEN NO_DATA_FOUND THEN RETURN NULL;
+   END;
+
+   FUNCTION get_by_name(p_name VARCHAR2) RETURN NUMBER IS
+      v regions.region_id%TYPE;
+   BEGIN
+      SELECT region_id INTO v FROM regions WHERE region_name = p_name;
+      RETURN v;
+   EXCEPTION
+      WHEN NO_DATA_FOUND THEN RETURN NULL;
+   END;
+
+   PROCEDURE list_all IS
+   BEGIN
+      FOR r IN (SELECT region_id, region_name FROM regions ORDER BY region_id) LOOP
+         DBMS_OUTPUT.PUT_LINE(r.region_id || ' - ' || r.region_name);
+      END LOOP;
+   END;
+
+   PROCEDURE find_like(p_wzor VARCHAR2) IS
+   BEGIN
+      FOR r IN (
+         SELECT region_id, region_name
+         FROM   regions
+         WHERE  UPPER(region_name) LIKE '%' || UPPER(p_wzor) || '%'
+         ORDER  BY region_id
+      ) LOOP
+         DBMS_OUTPUT.PUT_LINE(r.region_id || ' - ' || r.region_name);
+      END LOOP;
+   END;
+
+END pkg_regions;
+
+Test:
+BEGIN pkg_regions.add_region(10, 'Antarctica'); END;
+
+BEGIN pkg_regions.update_region(10, 'Antarktyda'); END;
+
+SELECT pkg_regions.get_by_id(10)             FROM dual;
+SELECT pkg_regions.get_by_name('Antarktyda') FROM dual;
+
+BEGIN pkg_regions.list_all; END;
+
+BEGIN pkg_regions.find_like('euro'); END;
+
+BEGIN pkg_regions.delete_region(10); END;
